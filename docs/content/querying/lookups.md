@@ -28,7 +28,7 @@ title: "Lookups"
 Lookups are an <a href="../development/experimental.html">experimental</a> feature.
 </div>
 
-Lookups are a concept in Druid where dimension values are (optionally) replaced with new values, allowing join-like
+Lookups are a concept in Apache Druid (incubating) where dimension values are (optionally) replaced with new values, allowing join-like
 functionality. Applying lookups in Druid is similar to joining a dimension table in a data warehouse. See
 [dimension specs](../querying/dimensionspecs.html) for more information. For the purpose of these documents, a "key"
 refers to a dimension value to match, and a "value" refers to its replacement. So if you wanted to map
@@ -54,6 +54,17 @@ Other lookup types are available as extensions, including:
 
 - Globally cached lookups from local files, remote URIs, or JDBC through [lookups-cached-global](../development/extensions-core/lookups-cached-global.html).
 - Globally cached lookups from a Kafka topic through [kafka-extraction-namespace](../development/extensions-core/kafka-extraction-namespace.html).
+
+Query Syntax
+------------
+
+In [Druid SQL](sql.html), lookups can be queried using the `LOOKUP` function, for example:
+
+```
+SELECT LOOKUP(column_name, 'lookup-name'), COUNT(*) FROM datasource GROUP BY 1
+```
+
+In native queries, lookups can be queried with [dimension specs or extraction functions](dimensionspecs.html).
 
 Query Execution
 ---------------
@@ -120,6 +131,8 @@ These endpoints will return one of the following results:
 The configuration is propagated to the query serving processes (Broker / Router / Peon / Historical) by the Coordinator.
 The query serving processes have an internal API for managing lookups on the process and those are used by the Coordinator.
 The Coordinator periodically checks if any of the processes need to load/drop lookups and updates them appropriately.
+
+Please note that only 2 simultaneous lookup configuration propagation requests can be concurrently handled by a single query serving process. This limit is applied to prevent lookup handling from consuming too many server HTTP connections.
 
 # API for configuring lookups
 
@@ -281,11 +294,14 @@ Using the prior example, a `GET` to `/druid/coordinator/v1/lookups/config/realti
 ```
 
 ## Delete Lookup
-A `DELETE` to `/druid/coordinator/v1/lookups/config/{tier}/{id}` will remove that lookup from the cluster.
+A `DELETE` to `/druid/coordinator/v1/lookups/config/{tier}/{id}` will remove that lookup from the cluster. If it was last lookup in the tier, then tier is deleted as well.
+
+## Delete Tier
+A `DELETE` to `/druid/coordinator/v1/lookups/config/{tier}` will remove that tier from the cluster.
 
 ## List tier names
 A `GET` to `/druid/coordinator/v1/lookups/config` will return a list of known tier names in the dynamic configuration.
-To discover a list of tiers currently active in the cluster **instead of** ones known in the dynamic configuration, the parameter `discover=true` can be added as per `/druid/coordinator/v1/lookups?discover=true`.
+To discover a list of tiers currently active in the cluster in addition to ones known in the dynamic configuration, the parameter `discover=true` can be added as per `/druid/coordinator/v1/lookups/config?discover=true`.
 
 ## List lookup names
 A `GET` to `/druid/coordinator/v1/lookups/config/{tier}` will return a list of known lookup names for that tier.

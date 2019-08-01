@@ -52,6 +52,7 @@ import org.apache.druid.indexing.overlord.TaskRunnerListener;
 import org.apache.druid.indexing.overlord.TaskRunnerWorkItem;
 import org.apache.druid.indexing.overlord.TaskStorage;
 import org.apache.druid.indexing.overlord.TaskStorageQueryAdapter;
+import org.apache.druid.indexing.overlord.WorkerTaskRunnerQueryAdapter;
 import org.apache.druid.indexing.overlord.autoscaling.ScalingStats;
 import org.apache.druid.indexing.overlord.config.TaskQueueConfig;
 import org.apache.druid.indexing.overlord.helpers.OverlordHelperManager;
@@ -212,6 +213,7 @@ public class OverlordTest
     Assert.assertEquals(taskMaster.getCurrentLeader(), druidNode.getHostAndPort());
 
     final TaskStorageQueryAdapter taskStorageQueryAdapter = new TaskStorageQueryAdapter(taskStorage);
+    final WorkerTaskRunnerQueryAdapter workerTaskRunnerQueryAdapter = new WorkerTaskRunnerQueryAdapter(taskMaster, null);
     // Test Overlord resource stuff
     overlordResource = new OverlordResource(
         taskMaster,
@@ -220,13 +222,14 @@ public class OverlordTest
         null,
         null,
         null,
-        AuthTestUtils.TEST_AUTHORIZER_MAPPER
+        AuthTestUtils.TEST_AUTHORIZER_MAPPER,
+        workerTaskRunnerQueryAdapter
     );
     Response response = overlordResource.getLeader();
     Assert.assertEquals(druidNode.getHostAndPort(), response.getEntity());
 
     final String taskId_0 = "0";
-    NoopTask task_0 = new NoopTask(taskId_0, null, 0, 0, null, null, null);
+    NoopTask task_0 = NoopTask.create(taskId_0, 0);
     response = overlordResource.taskPost(task_0, req);
     Assert.assertEquals(200, response.getStatus());
     Assert.assertEquals(ImmutableMap.of("task", taskId_0), response.getEntity());
@@ -259,7 +262,7 @@ public class OverlordTest
     // Manually insert task in taskStorage
     // Verifies sync from storage
     final String taskId_1 = "1";
-    NoopTask task_1 = new NoopTask(taskId_1, null, 0, 0, null, null, null);
+    NoopTask task_1 = NoopTask.create(taskId_1, 0);
     taskStorage.insert(task_1, TaskStatus.running(taskId_1));
     // Wait for task runner to run task_1
     runTaskCountDownLatches[Integer.parseInt(taskId_1)].await();
@@ -408,7 +411,9 @@ public class OverlordTest
     }
 
     @Override
-    public void shutdown(String taskid, String reason) {}
+    public void shutdown(String taskid, String reason)
+    {
+    }
 
     @Override
     public synchronized Collection<? extends TaskRunnerWorkItem> getRunningTasks()

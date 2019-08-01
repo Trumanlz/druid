@@ -1,6 +1,6 @@
 ---
 layout: doc_page
-title: "API Reference"
+title: "Apache Druid (incubating) API Reference"
 ---
 
 <!--
@@ -22,7 +22,7 @@ title: "API Reference"
   ~ under the License.
   -->
 
-# API Reference
+# Apache Druid (incubating) API Reference
 
 This page documents all of the API endpoints for each Druid service type.
 
@@ -113,15 +113,17 @@ Returns the serialized JSON of segments to load and drop for each Historical pro
 
 * `/druid/coordinator/v1/metadata/datasources`
 
-Returns a list of the names of enabled datasources in the cluster.
+Returns a list of the names of data sources with at least one used segment in the cluster.
 
-* `/druid/coordinator/v1/metadata/datasources?includeDisabled`
+* `/druid/coordinator/v1/metadata/datasources?includeUnused`
 
-Returns a list of the names of enabled and disabled datasources in the cluster.
+Returns a list of the names of data sources, regardless of whether there are used segments belonging to those data
+sources in the cluster or not.
 
 * `/druid/coordinator/v1/metadata/datasources?full`
 
-Returns a list of all enabled datasources with all metadata about those datasources as stored in the metadata store.
+Returns a list of all data sources with at least one used segment in the cluster. Returns all metadata about those data
+sources as stored in the metadata store.
 
 * `/druid/coordinator/v1/metadata/datasources/{dataSourceName}`
 
@@ -162,7 +164,7 @@ Returns a list of datasource names found in the cluster.
 
 * `/druid/coordinator/v1/datasources?simple`
 
-Returns a list of JSON objects containing the name and properties of datasources found in the cluster.  Properties include segment count, total segment byte size, minTime, and maxTime.
+Returns a list of JSON objects containing the name and properties of datasources found in the cluster.  Properties include segment count, total segment byte size, replicated total segment byte size, minTime, and maxTime.
 
 * `/druid/coordinator/v1/datasources?full`
 
@@ -170,7 +172,7 @@ Returns a list of datasource names found in the cluster with all metadata about 
 
 * `/druid/coordinator/v1/datasources/{dataSourceName}`
 
-Returns a JSON object containing the name and properties of a datasource. Properties include segment count, total segment byte size, minTime, and maxTime.
+Returns a JSON object containing the name and properties of a datasource. Properties include segment count, total segment byte size, replicated total segment byte size, minTime, and maxTime.
 
 * `/druid/coordinator/v1/datasources/{dataSourceName}?full`
 
@@ -220,21 +222,52 @@ Returns full segment metadata for a specific segment in the cluster.
 
 Return the tiers that a datasource exists in.
 
+#### Note for coordinator's POST and DELETE API's
+The segments would be enabled when these API's are called, but then can be disabled again by the coordinator if any dropRule matches. Segments enabled by these API's might not be loaded by historical processes if no loadRule matches.  If an indexing or kill task runs at the same time as these API's are invoked, the behavior is undefined. Some segments might be killed and others might be enabled. It's also possible that all segments might be disabled but at the same time, the indexing task is able to read data from those segments and succeed. 
+
+Caution : Avoid using indexing or kill tasks and these API's at the same time for the same datasource and time chunk. (It's fine if the time chunks or datasource don't overlap)
+
 ##### POST
 
 * `/druid/coordinator/v1/datasources/{dataSourceName}`
 
-Enables all segments of datasource which are not overshadowed by others.
+Marks as used all segments belonging to a data source. Returns a JSON object of the form
+`{"numChangedSegments": <number>}` with the number of segments in the database whose state has been changed (that is,
+the segments were marked as used) as the result of this API call. 
 
 * `/druid/coordinator/v1/datasources/{dataSourceName}/segments/{segmentId}`
 
-Enables a segment of a datasource.
+Marks as used a segment of a data source. Returns a JSON object of the form `{"segmentStateChanged": <boolean>}` with
+the boolean indicating if the state of the segment has been changed (that is, the segment was marked as used) as the
+result of this API call. 
+
+* `/druid/coordinator/v1/datasources/{dataSourceName}/markUsed`
+
+* `/druid/coordinator/v1/datasources/{dataSourceName}/markUnused`
+
+Marks segments (un)used for a datasource by interval or set of segment Ids. 
+
+When marking used only segments that are not overshadowed will be updated.
+
+The request payload contains the interval or set of segment Ids to be marked unused.
+Either interval or segment ids should be provided, if both or none are provided in the payload, the API would throw an error (400 BAD REQUEST).
+
+Interval specifies the start and end times as IS0 8601 strings. `interval=(start/end)` where start and end both are inclusive and only the segments completely contained within the specified interval will be disabled, partially overlapping segments will not be affected.
+
+JSON Request Payload:
+
+ |Key|Description|Example|
+|----------|-------------|---------|
+|`interval`|The interval for which to mark segments unused|"2015-09-12T03:00:00.000Z/2015-09-12T05:00:00.000Z"|
+|`segmentIds`|Set of segment Ids to be marked unused|["segmentId1", "segmentId2"]|
 
 ##### DELETE<a name="coordinator-delete"></a>
 
 * `/druid/coordinator/v1/datasources/{dataSourceName}`
 
-Disables a datasource.
+Marks as unused all segments belonging to a data source. Returns a JSON object of the form
+`{"numChangedSegments": <number>}` with the number of segments in the database whose state has been changed (that is,
+the segments were marked as unused) as the result of this API call. 
 
 * `/druid/coordinator/v1/datasources/{dataSourceName}/intervals/{interval}`
 * `@Deprecated. /druid/coordinator/v1/datasources/{dataSourceName}?kill=true&interval={myInterval}`
@@ -243,7 +276,9 @@ Runs a [Kill task](../ingestion/tasks.html) for a given interval and datasource.
 
 * `/druid/coordinator/v1/datasources/{dataSourceName}/segments/{segmentId}`
 
-Disables a segment.
+Marks as unused a segment of a data source. Returns a JSON object of the form `{"segmentStateChanged": <boolean>}` with
+the boolean indicating if the state of the segment has been changed (that is, the segment was marked as unused) as the
+result of this API call.
 
 #### Retention Rules
 
@@ -485,7 +520,21 @@ Returns a list of objects of the currently active supervisors.
 |Field|Type|Description|
 |---|---|---|
 |`id`|String|supervisor unique identifier|
+|`state`|String|basic state of the supervisor. Available states:`UNHEALTHY_SUPERVISOR`, `UNHEALTHY_TASKS`, `PENDING`, `RUNNING`, `SUSPENDED`, `STOPPING`|
+|`detailedState`|String|supervisor specific state. (See documentation of specific supervisor for details)|
+|`healthy`|Boolean|true or false indicator of overall supervisor health|
 |`spec`|SupervisorSpec|json specification of supervisor (See Supervisor Configuration for details)|
+
+* `/druid/indexer/v1/supervisor?state=true`
+
+Returns a list of objects of the currently active supervisors and their current state.
+
+|Field|Type|Description|
+|---|---|---|
+|`id`|String|supervisor unique identifier|
+|`state`|String|basic state of the supervisor. Available states:`UNHEALTHY_SUPERVISOR`, `UNHEALTHY_TASKS`, `PENDING`, `RUNNING`, `SUSPENDED`, `STOPPING`|
+|`detailedState`|String|supervisor specific state. (See documentation of specific supervisor for details)|
+|`healthy`|Boolean|true or false indicator of overall supervisor health|
 
 * `/druid/indexer/v1/supervisor/<supervisorId>`
 
@@ -556,7 +605,7 @@ Note that all _interval_ URL parameters are ISO 8601 strings delimited by a `_` 
 
 * `/druid/indexer/v1/worker`
 
-Retreives current overlord dynamic configuration.
+Retrieves current overlord dynamic configuration.
 
 * `/druid/indexer/v1/worker/history?interval={interval}&counter={count}`
 
@@ -695,8 +744,8 @@ druid.query.segmentMetadata.defaultHistory
 Returns the dimensions of the datasource.
 
 <div class="note caution">
-This API is deprecated and will be removed in future releases. Please use <a href="/querying/segmentmetadataquery.html">SegmentMetadataQuery</a> instead
-which provides more comprehensive information and supports all dataSource types including streaming dataSources. It's also encouraged to use <a href="/querying/sql.html#retrieving-metadata">INFORMATION_SCHEMA tables</a>
+This API is deprecated and will be removed in future releases. Please use <a href="../querying/segmentmetadataquery.html">SegmentMetadataQuery</a> instead
+which provides more comprehensive information and supports all dataSource types including streaming dataSources. It's also encouraged to use <a href="../querying/sql.html#retrieving-metadata">INFORMATION_SCHEMA tables</a>
 if you're using SQL.
 </div>
 
@@ -706,7 +755,7 @@ Returns the metrics of the datasource.
 
 <div class="note caution">
 This API is deprecated and will be removed in future releases. Please use <a href="../querying/segmentmetadataquery.html">SegmentMetadataQuery</a> instead
-which provides more comprehensive information and supports all dataSource types including streaming dataSources. It's also encouraged to use [INFORMATION_SCHEMA tables](../querying/sql.html#retrieving-metadata)
+which provides more comprehensive information and supports all dataSource types including streaming dataSources. It's also encouraged to use <a href="../querying/sql.html#retrieving-metadata">INFORMATION_SCHEMA tables</a>
 if you're using SQL.
 </div>
 

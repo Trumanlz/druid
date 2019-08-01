@@ -42,14 +42,18 @@ import org.apache.druid.math.expr.Parser;
 import org.apache.druid.query.extraction.RegexDimExtractionFn;
 import org.apache.druid.segment.column.ValueType;
 import org.apache.druid.sql.calcite.expression.builtin.DateTruncOperatorConversion;
+import org.apache.druid.sql.calcite.expression.builtin.LPadOperatorConversion;
 import org.apache.druid.sql.calcite.expression.builtin.LeftOperatorConversion;
 import org.apache.druid.sql.calcite.expression.builtin.ParseLongOperatorConversion;
+import org.apache.druid.sql.calcite.expression.builtin.RPadOperatorConversion;
 import org.apache.druid.sql.calcite.expression.builtin.RegexpExtractOperatorConversion;
 import org.apache.druid.sql.calcite.expression.builtin.RepeatOperatorConversion;
 import org.apache.druid.sql.calcite.expression.builtin.ReverseOperatorConversion;
 import org.apache.druid.sql.calcite.expression.builtin.RightOperatorConversion;
+import org.apache.druid.sql.calcite.expression.builtin.RoundOperatorConversion;
 import org.apache.druid.sql.calcite.expression.builtin.StringFormatOperatorConversion;
 import org.apache.druid.sql.calcite.expression.builtin.StrposOperatorConversion;
+import org.apache.druid.sql.calcite.expression.builtin.TimeCeilOperatorConversion;
 import org.apache.druid.sql.calcite.expression.builtin.TimeExtractOperatorConversion;
 import org.apache.druid.sql.calcite.expression.builtin.TimeFloorOperatorConversion;
 import org.apache.druid.sql.calcite.expression.builtin.TimeFormatOperatorConversion;
@@ -464,6 +468,84 @@ public class ExpressionsTest extends CalciteTestBase
   }
 
   @Test
+  public void testRound()
+  {
+    final SqlFunction roundFunction = new RoundOperatorConversion().calciteOperator();
+
+    testExpression(
+        rexBuilder.makeCall(roundFunction, inputRef("a")),
+        DruidExpression.fromExpression("round(\"a\")"),
+        10L
+    );
+
+    testExpression(
+        rexBuilder.makeCall(roundFunction, inputRef("b")),
+        DruidExpression.fromExpression("round(\"b\")"),
+        25L
+    );
+
+    testExpression(
+        rexBuilder.makeCall(roundFunction, inputRef("b"), integerLiteral(-1)),
+        DruidExpression.fromExpression("round(\"b\",-1)"),
+        30L
+    );
+
+    testExpression(
+        rexBuilder.makeCall(roundFunction, inputRef("x")),
+        DruidExpression.fromExpression("round(\"x\")"),
+        2.0
+    );
+
+    testExpression(
+        rexBuilder.makeCall(roundFunction, inputRef("x"), integerLiteral(1)),
+        DruidExpression.fromExpression("round(\"x\",1)"),
+        2.3
+    );
+
+    testExpression(
+        rexBuilder.makeCall(roundFunction, inputRef("y")),
+        DruidExpression.fromExpression("round(\"y\")"),
+        3.0
+    );
+
+    testExpression(
+        rexBuilder.makeCall(roundFunction, inputRef("z")),
+        DruidExpression.fromExpression("round(\"z\")"),
+        -2.0
+    );
+  }
+
+  @Test
+  public void testRoundWithInvalidArgument()
+  {
+    final SqlFunction roundFunction = new RoundOperatorConversion().calciteOperator();
+
+    expectedException.expect(IAE.class);
+    expectedException.expectMessage(
+        "The first argument to the function[round] should be integer or double type but get the STRING type");
+    testExpression(
+        rexBuilder.makeCall(roundFunction, inputRef("s")),
+        DruidExpression.fromExpression("round(\"s\")"),
+        "IAE Exception"
+    );
+  }
+
+  @Test
+  public void testRoundWithInvalidSecondArgument()
+  {
+    final SqlFunction roundFunction = new RoundOperatorConversion().calciteOperator();
+
+    expectedException.expect(IAE.class);
+    expectedException.expectMessage(
+        "The second argument to the function[round] should be integer type but get the STRING type");
+    testExpression(
+        rexBuilder.makeCall(roundFunction, inputRef("x"), rexBuilder.makeLiteral("foo")),
+        DruidExpression.fromExpression("round(\"x\",'foo')"),
+        "IAE Exception"
+    );
+  }
+
+  @Test
   public void testDateTrunc()
   {
     testExpression(
@@ -525,6 +607,33 @@ public class ExpressionsTest extends CalciteTestBase
   }
 
   @Test
+  public void testPad()
+  {
+    testExpression(
+        rexBuilder.makeCall(
+            new LPadOperatorConversion().calciteOperator(),
+            inputRef("s"),
+            rexBuilder.makeLiteral(5, typeFactory.createSqlType(SqlTypeName.INTEGER), true),
+            rexBuilder.makeLiteral("x")
+        ),
+        DruidExpression.fromExpression("lpad(\"s\",5,'x')"),
+        "xxfoo"
+    );
+
+    testExpression(
+        rexBuilder.makeCall(
+            new RPadOperatorConversion().calciteOperator(),
+            inputRef("s"),
+            rexBuilder.makeLiteral(5, typeFactory.createSqlType(SqlTypeName.INTEGER), true),
+            rexBuilder.makeLiteral("x")
+        ),
+        DruidExpression.fromExpression("rpad(\"s\",5,'x')"),
+        "fooxx"
+    );
+  }
+
+
+  @Test
   public void testTimeFloor()
   {
     testExpression(
@@ -567,6 +676,32 @@ public class ExpressionsTest extends CalciteTestBase
   }
 
   @Test
+  public void testTimeCeil()
+  {
+    testExpression(
+        rexBuilder.makeCall(
+            new TimeCeilOperatorConversion().calciteOperator(),
+            timestampLiteral(DateTimes.of("2000-02-03T04:05:06Z")),
+            rexBuilder.makeLiteral("PT1H")
+        ),
+        DruidExpression.fromExpression("timestamp_ceil(949550706000,'PT1H',null,'UTC')"),
+        DateTimes.of("2000-02-03T05:00:00").getMillis()
+    );
+
+    testExpression(
+        rexBuilder.makeCall(
+            new TimeCeilOperatorConversion().calciteOperator(),
+            inputRef("t"),
+            rexBuilder.makeLiteral("P1D"),
+            rexBuilder.makeNullLiteral(typeFactory.createSqlType(SqlTypeName.TIMESTAMP)),
+            rexBuilder.makeLiteral("America/Los_Angeles")
+        ),
+        DruidExpression.fromExpression("timestamp_ceil(\"t\",'P1D',null,'America/Los_Angeles')"),
+        DateTimes.of("2000-02-03T08:00:00").getMillis()
+    );
+  }
+
+  @Test
   public void testOtherTimeCeil()
   {
     // CEIL(__time TO unit)
@@ -592,7 +727,19 @@ public class ExpressionsTest extends CalciteTestBase
             rexBuilder.makeLiteral("PT2H"),
             rexBuilder.makeLiteral(-3, typeFactory.createSqlType(SqlTypeName.INTEGER), true)
         ),
-        DruidExpression.fromExpression("timestamp_shift(\"t\",'PT2H',-3)"),
+        DruidExpression.fromExpression("timestamp_shift(\"t\",'PT2H',-3,'UTC')"),
+        DateTimes.of("2000-02-02T22:05:06").getMillis()
+    );
+
+    testExpression(
+        rexBuilder.makeCall(
+            new TimeShiftOperatorConversion().calciteOperator(),
+            inputRef("t"),
+            rexBuilder.makeLiteral("PT2H"),
+            rexBuilder.makeLiteral(-3, typeFactory.createSqlType(SqlTypeName.INTEGER), true),
+            rexBuilder.makeLiteral("America/Los_Angeles")
+        ),
+        DruidExpression.fromExpression("timestamp_shift(\"t\",'PT2H',-3,'America/Los_Angeles')"),
         DateTimes.of("2000-02-02T22:05:06").getMillis()
     );
   }
@@ -660,7 +807,7 @@ public class ExpressionsTest extends CalciteTestBase
         ),
         DruidExpression.of(
             null,
-            "timestamp_shift(\"t\",concat('P', 13, 'M'),1)"
+            "timestamp_shift(\"t\",concat('P', 13, 'M'),1,'UTC')"
         ),
         DateTimes.of("2000-02-03T04:05:06").plus(period).getMillis()
     );
@@ -710,7 +857,7 @@ public class ExpressionsTest extends CalciteTestBase
         ),
         DruidExpression.of(
             null,
-            "timestamp_shift(\"t\",concat('P', 13, 'M'),-1)"
+            "timestamp_shift(\"t\",concat('P', 13, 'M'),-1,'UTC')"
         ),
         DateTimes.of("2000-02-03T04:05:06").minus(period).getMillis()
     );
@@ -725,7 +872,7 @@ public class ExpressionsTest extends CalciteTestBase
             inputRef("tstr"),
             rexBuilder.makeLiteral("yyyy-MM-dd HH:mm:ss")
         ),
-        DruidExpression.fromExpression("timestamp_parse(\"tstr\",'yyyy-MM-dd HH:mm:ss')"),
+        DruidExpression.fromExpression("timestamp_parse(\"tstr\",'yyyy-MM-dd HH:mm:ss','UTC')"),
         DateTimes.of("2000-02-03T04:05:06").getMillis()
     );
 

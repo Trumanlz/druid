@@ -24,7 +24,7 @@ title: "Bloom Filter"
 
 # Bloom Filter
 
-This extension adds the ability to both construct bloom filters from query results, and filter query results by testing 
+This Apache Druid (incubating) extension adds the ability to both construct bloom filters from query results, and filter query results by testing 
 against a bloom filter. Make sure to [include](../../operations/including-extensions.html) `druid-bloom-filter` as an 
 extension.
 
@@ -33,6 +33,7 @@ to use with Druid for cases where an explicit filter is impossible, e.g. filteri
  values.
  
 Following are some characteristics of BloomFilters:
+
 - BloomFilters are highly space efficient when compared to using a HashSet.
 - Because of the probabilistic nature of bloom filters, false positive results are possible (element was not actually 
 inserted into a bloom filter during construction, but `test()` says true)
